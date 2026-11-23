@@ -50,12 +50,43 @@ async function signOut() {
 }
 
  
-function openAuth() {
+
+async function openAuth() {
+  const choice = prompt(
+    "Type 1 to Sign Up or 2 to Log In:"
+  );
+
+  if (choice !== "1" && choice !== "2") {
+    return;
+  }
+
   const email = prompt("Enter your email address:");
   if (!email) return;
 
-  alert("Login form is being prepared.");
+  const password = prompt("Enter your password:");
+  if (!password) return;
+
+  try {
+    if (choice === "1") {
+      const result = await signUp(email, password);
+
+      if (result.user && !result.session) {
+        alert("Check your email to confirm your account.");
+      } else {
+        alert("Account created successfully!");
+      }
+    } else {
+      await signIn(email, password);
+      alert("You are now logged in!");
+    }
+  } catch (error) {
+    alert("Authentication error: " + error.message);
+  }
 }
+ 
+   
+
+  
  
   
   const defaultState={chapter:'Romans 12',day:1,portion:'Romans 12:1–3',portionText:'Offer your life to God; be transformed by renewing your mind; think with humility.',quote:'“Do not conform to the pattern of this world, but be transformed by the renewing of your mind.”',sessions:[false,false,false,false],tasks:[{time:'05:45',text:'Prayer and Bible reading',done:false},{time:'06:15',text:'Scripture recall',done:false},{time:'16:00',text:'Study session',done:false},{time:'20:00',text:'Evening reflection',done:false}],habits:[{text:'Spend time in prayer',done:false},{text:'Read the Bible',done:false},{text:'Complete Scripture recall',done:false},{text:'Practice gratitude',done:false},{text:'Show kindness or serve someone',done:false}],cards:[{front:'What does Romans 12:2 teach?',back:'Renew your mind and do not conform to the world.'},{front:'What is humility?',back:'Seeing yourself honestly before God and valuing others without self-exaltation.'},{front:'What is one way to practice gratitude?',back:'Notice and thank God for specific gifts, even ordinary ones.'}],idx:0,flipped:false,reflections:{},gratitude:'',reflection:'',journalEntries:[],journalPlan:'',journalThoughts:'',journalPrayer:'',groupsJoined:[],groupPosts:{}};
