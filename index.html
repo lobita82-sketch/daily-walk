@@ -229,6 +229,148 @@ async function deleteOnlineJournal(id) {
 
   if (error) throw error;
 }
+// Connect journal saving to Supabase
 
-  
+saveJournal = async function () {
+  const plan = document.getElementById("journalPlan").value;
+  const thoughts = document.getElementById("journalThoughts").value;
+  const prayer = document.getElementById("journalPrayer").value;
+
+  if (!plan.trim() && !thoughts.trim() && !prayer.trim()) {
+    return toast("Please write something first.");
+  }
+
+  try {
+    await saveOnlineJournal(plan, thoughts, prayer);
+
+    document.getElementById("journalPlan").value = "";
+    document.getElementById("journalThoughts").value = "";
+    document.getElementById("journalPrayer").value = "";
+
+    toast("Journal saved online!");
+  } catch (error) {
+    alert("Unable to save journal: " + error.message);
+  }
+};
+ // Retrieve and display online journal entries
+
+async function refreshOnlineJournal() {
+  const list = document.getElementById("journalList");
+
+  list.textContent = "Loading journal entries...";
+
+  try {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      list.textContent = "Please log in to view your journal.";
+      return;
+    }
+
+    const entries = await loadOnlineJournal();
+
+    if (!entries.length) {
+      list.textContent = "No online journal entries yet.";
+      return;
+    }
+
+    list.innerHTML = entries.map(entry => {
+      const content = typeof entry.content === "string"
+        ? JSON.parse(entry.content)
+        : entry.content;
+
+      return `
+        <div class="deck">
+          <strong>${esc(new Date(entry.created_at).toLocaleDateString())}</strong>
+          <p><b>Plan:</b> ${esc(content.plan || "")}</p>
+          <p><b>Thoughts:</b> ${esc(content.thoughts || "")}</p>
+          <p><b>Prayer:</b> ${esc(content.prayer || "")}</p>
+        <button type="button" class="btn secondary sm"
+data-journal-edit="${esc(String(entry.id))}">
+Edit
+</button>
+
+<button type="button" class="btn secondary sm"
+data-journal-delete="${esc(String(entry.id))}">
+Delete
+</button></div>
+      `;
+    }).join("");
+list.querySelectorAll("[data-journal-edit]").forEach(button => {
+  button.onclick = () => {
+    const entry = entries.find(e =>
+      String(e.id) === button.dataset.journalEdit
+    );
+
+    if (!entry) return;
+
+    const content = typeof entry.content === "string"
+      ? JSON.parse(entry.content)
+      : entry.content;
+
+    editCloudEntry(entry.id, content);
+  };
+});
+
+list.querySelectorAll("[data-journal-delete]").forEach(button => {
+  button.onclick = () => {
+    deleteCloudEntry(button.dataset.journalDelete);
+  };
+});
+  } catch (error) {
+    list.textContent = "Unable to load journal entries.";
+  }
+} 
+  // Connect the journal screen to Supabase
+
+renderJournalList = function () {
+  refreshOnlineJournal();
+};
+
+const previousSaveJournal = saveJournal;
+
+saveJournal = async function () {
+  await previousSaveJournal();
+  await refreshOnlineJournal();
+};
+
+db.auth.onAuthStateChange(() => {
+  document.getElementById("journalList").textContent = "";
+  setTimeout(() => refreshOnlineJournal(), 0);
+});
+
+refreshOnlineJournal();
+
+  // Online journal editing and deletion
+
+async function editCloudEntry(id, content) {
+  const plan = prompt("Edit your plan:", content.plan || "");
+  if (plan === null) return;
+
+  const thoughts = prompt("Edit your thoughts:", content.thoughts || "");
+  if (thoughts === null) return;
+
+  const prayer = prompt("Edit your prayer:", content.prayer || "");
+  if (prayer === null) return;
+
+  try {
+    await updateOnlineJournal(id, plan, thoughts, prayer);
+    toast("Journal entry updated!");
+    await refreshOnlineJournal();
+  } catch (error) {
+    alert("Unable to update: " + error.message);
+  }
+}
+
+async function deleteCloudEntry(id) {
+  if (!confirm("Delete this journal entry?")) return;
+
+  try {
+    await deleteOnlineJournal(id);
+    toast("Journal entry deleted!");
+    await refreshOnlineJournal();
+  } catch (error) {
+    alert("Unable to delete: " + error.message);
+  }
+}
 </script></body></html>
