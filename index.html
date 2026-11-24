@@ -123,4 +123,112 @@ function communityRules(){modal(`<h3>Community guidelines</h3><p>1. Be kind and 
 render();
 // PWA install support and offline shell. Online account sync is not configured until a backend is connected.
 let installPromptEvent=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPromptEvent=e;const b=document.getElementById('installBtn');if(b)b.style.display='inline-block'});async function installApp(){if(!installPromptEvent){toast('Use your browser menu and choose Install app or Add to Home screen');return}installPromptEvent.prompt();await installPromptEvent.userChoice;installPromptEvent=null;const b=document.getElementById('installBtn');if(b)b.style.display='none'}if('serviceWorker' in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
+// Online journal authentication
+
+async function getCurrentUser() {
+  const { data, error } = await db.auth.getUser();
+
+  if (error || !data.user) {
+    return null;
+  }
+
+  return data.user;
+}
+// Save journal entry to Supabase
+
+async function saveOnlineJournal(plan, thoughts, prayer) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    throw new Error("Please log in first.");
+  }
+
+  const { data, error } = await db
+    .from("journal_entries")
+    .insert({
+      user_id: user.id,
+      title: "Journal Entry",
+      content: JSON.stringify({
+        plan: plan,
+        thoughts: thoughts,
+        prayer: prayer
+      })
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+// Retrieve private journal entries
+
+async function loadOnlineJournal() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await db
+    .from("journal_entries")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", {
+      ascending: false
+    });
+
+  if (error) throw error;
+
+  return data || [];
+}
+// Update an online journal entry
+
+async function updateOnlineJournal(id, plan, thoughts, prayer) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    throw new Error("Please log in first.");
+  }
+
+  const { data, error } = await db
+    .from("journal_entries")
+    .update({
+      content: JSON.stringify({
+        plan,
+        thoughts,
+        prayer
+      })
+    })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+// Delete an online journal entry
+
+async function deleteOnlineJournal(id) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    throw new Error("Please log in first.");
+  }
+
+  const { error } = await db
+    .from("journal_entries")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select("id")
+    .single();
+
+  if (error) throw error;
+}
+
+  
 </script></body></html>
