@@ -646,4 +646,236 @@ loadOnlineTasks();
 
 // END OF ONLINE PLANNER
 
+// START OF ONLINE HABIT TRACKER
+
+function habitDate() {
+  const d = new Date();
+  return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getDate()).padStart(2, "0");
+}
+
+let habitRequest = 0;
+let habitBusy = false;
+let loadedHabitDate = "";
+
+async function loadOnlineHabits() {
+  const request = ++habitRequest;
+  const today = habitDate();
+
+  try {
+    const user = await getCurrentUser();
+
+    if (request !== habitRequest) return;
+
+    if (!user) {
+      state.habits = [];
+      render();
+      return;
+    }
+
+    const { data: habits, error } = await db
+      .from("habits")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .order("created_at");
+
+    if (error) throw error;
+
+    const { data: completions, error: completionError } =
+      await db
+        .from("habit_completions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("completion_date", today);
+
+    if (completionError) throw completionError;
+
+    if (request !== habitRequest) return;
+
+    state.habits = (habits || []).map(h => ({
+      id: h.id,
+      text: h.habit,
+      done: (completions || []).some(c =>
+        c.habit_id === h.id && c.completed
+      )
+    }));
+
+    loadedHabitDate = today;
+    render();
+
+  } catch (error) {
+    if (request !== habitRequest) return;
+    state.habits = [];
+    render();
+    toast("Unable to load habits: " + error.message);
+  }
+}
+
+saveHabit = async function () {
+  if (habitBusy) return;
+
+  const text = document
+    .getElementById("mHabit").value.trim();
+
+  if (!text) return toast("Enter a habit.");
+
+  habitBusy = true;
+
+  try {
+    const user = await getCurrentUser();
+
+    if (!user) throw new Error("Please log in first.");
+
+    const { error } = await db
+      .from("habits")
+      .insert({
+        user_id: user.id,
+        habit: text,
+        active: true
+      });
+
+    if (error) throw error;
+
+    closeModal();
+    await loadOnlineHabits();
+    toast("Habit saved online!");
+
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    habitBusy = false;
+  }
+};
+
+toggleHabit = async function (i) {
+  if (habitBusy) return;
+
+  const habit = state.habits[i];
+  if (!habit) return;
+
+  if (loadedHabitDate !== habitDate()) {
+    await loadOnlineHabits();
+    return toast("New day. Please select your habit again.");
+  }
+
+  habitBusy = true;
+
+  try {
+    const user = await getCurrentUser();
+
+    if (!user) throw new Error("Please log in first.");
+
+    const today = habitDate();
+
+    const { data: existing, error: readError } =
+      await db
+        .from("habit_completions")
+        .select("id, completed")
+        .eq("user_id", user.id)
+        .eq("habit_id", habit.id)
+        .eq("completion_date", today)
+        .maybeSingle();
+
+    if (readError) throw readError;
+
+    const completed = !Boolean(existing?.completed);
+
+    let result;
+
+    if (existing) {
+      result = await db
+        .from("habit_completions")
+        .update({ completed })
+        .eq("id", existing.id)
+        .eq("user_id", user.id);
+    } else {
+      result = await db
+        .from("habit_completions")
+        .insert({
+          user_id: user.id,
+          habit_id: habit.id,
+          completion_date: today,
+          completed
+        });
+    }
+
+    if (result.error) throw result.error;
+
+    await loadOnlineHabits();
+    toast("Habit progress saved!");
+
+  } catch (error) {
+    alert(error.message);
+    await loadOnlineHabits();
+  } finally {
+    habitBusy = false;
+  }
+};
+
+resetHabits = async function () {
+  if (habitBusy) return;
+
+  if (!confirm("Reset today's habit progress?")) return;
+
+  habitBusy = true;
+
+  try {
+    const user = await getCurrentUser();
+
+    if (!user) throw new Error("Please log in first.");
+
+    const { error } = await db
+      .from("habit_completions")
+      .update({ completed: false })
+      .eq("user_id", user.id)
+      .eq("completion_date", habitDate());
+
+    if (error) throw error;
+
+    await loadOnlineHabits();
+    toast("Today's habits reset.");
+
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    habitBusy = false;
+  }
+};
+
+const originalHabitGo = go;
+
+go = function (view) {
+  originalHabitGo(view);
+
+  if (view === "growth" || view === "home") {
+    loadOnlineHabits();
+  }
+};
+
+db.auth.onAuthStateChange(() => {
+  ++habitRequest;
+  state.habits = [];
+  render();
+
+  setTimeout(() => loadOnlineHabits(), 0);
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadOnlineHabits();
+});
+
+setInterval(() => {
+  if (loadedHabitDate !== habitDate()) {
+    loadOnlineHabits();
+  }
+}, 60000);
+
+state.habits = [];
+render();
+loadOnlineHabits();
+
+// END OF ONLINE HABIT TRACKER
+
 </script></body></html>
