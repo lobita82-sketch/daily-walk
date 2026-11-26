@@ -372,5 +372,278 @@ async function deleteCloudEntry(id) {
   } catch (error) {
     alert("Unable to delete: " + error.message);
   }
+} 
+// =====================================
+// DAILY WALK - ONLINE PLANNER
+// =====================================
+
+let plannerDate = localPlannerDate();
+let plannerBusy = false;
+let plannerRequest = 0;
+
+function localPlannerDate(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0")
+  ].join("-");
 }
+
+async function loadOnlineTasks() {
+  const request = ++plannerRequest;
+  const date = plannerDate;
+
+  try {
+    const user = await getCurrentUser();
+
+    if (request !== plannerRequest) return;
+
+    if (!user) {
+      state.tasks = [];
+      render();
+      return;
+    }
+
+    const { data, error } = await db
+      .from("planner_tasks")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("task_date", date)
+      .order("task_time", {
+        ascending: true,
+        nullsFirst: false
+      });
+
+    if (request !== plannerRequest) return;
+    if (error) throw error;
+
+    state.tasks = (data || []).map(t => ({
+      id: t.id,
+      text: t.task,
+      time: t.task_time
+        ? t.task_time.slice(0, 5)
+        : "",
+      done: t.completed
+    }));
+
+    render();
+
+  } catch (error) {
+    if (request !== plannerRequest) return;
+    state.tasks = [];
+    render();
+    toast("Unable to load planner");
+  }
+}
+
+async function plannerAction(action) {
+  if (plannerBusy) return;
+  plannerBusy = true;
+
+  try {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      throw new Error("Please log in first.");
+    }
+
+    await action(user);
+    await loadOnlineTasks();
+
+  } catch (error) {
+    alert("Planner error: " + error.message);
+  } finally {
+    plannerBusy = false;
+  }
+}
+
+// Create task online
+
+saveTask = async function () {
+  const text = document
+    .getElementById("mTask").value.trim();
+
+  const time = document
+    .getElementById("mTime").value;
+
+  const date = plannerDate;
+
+  if (!text) {
+    return toast("Please enter a task");
+  }
+
+  await plannerAction(async user => {
+    const { error } = await db
+      .from("planner_tasks")
+      .insert({
+        user_id: user.id,
+        task: text,
+        task_date: date,
+        task_time: time || null,
+        completed: false
+      });
+
+    if (error) throw error;
+
+    closeModal();
+    toast("Task saved online!");
+  });
+};
+
+// Complete or uncomplete task
+
+toggleTask = async function (i) {
+  const task = state.tasks[i];
+  if (!task || !task.id) return;
+
+  await plannerAction(async user => {
+    const { error } = await db
+      .from("planner_tasks")
+      .update({
+        completed: !task.done
+      })
+      .eq("id", task.id)
+      .eq("user_id", user.id)
+      .select("id")
+      .single();
+
+    if (error) throw error;
+  });
+};
+
+// Edit task online
+
+saveEditTask = async function (i) {
+  const task = state.tasks[i];
+  if (!task || !task.id) return;
+
+  const text = document
+    .getElementById("mTask").value.trim();
+
+  const time = document
+    .getElementById("mTime").value;
+
+  if (!text) {
+    return toast("Please enter a task");
+  }
+
+  await plannerAction(async user => {
+    const { error } = await db
+      .from("planner_tasks")
+      .update({
+        task: text,
+        task_time: time || null
+      })
+      .eq("id", task.id)
+      .eq("user_id", user.id)
+      .select("id")
+      .single();
+
+    if (error) throw error;
+
+    closeModal();
+    toast("Task updated!");
+  });
+};
+
+// Delete task online
+
+deleteTask = async function (i) {
+  const task = state.tasks[i];
+  if (!task || !task.id) return;
+
+  if (!confirm("Delete this task?")) return;
+
+  await plannerAction(async user => {
+    const { error } = await db
+      .from("planner_tasks")
+      .delete()
+      .eq("id", task.id)
+      .eq("user_id", user.id)
+      .select("id")
+      .single();
+
+    if (error) throw error;
+
+    toast("Task deleted!");
+  });
+};
+
+// Switch between today and tomorrow
+
+setTomorrow = async function () {
+  if (plannerBusy) return;
+
+  const today = localPlannerDate();
+  const tomorrow = localPlannerDate(1);
+
+  plannerDate = plannerDate === today
+    ? tomorrow
+    : today;
+
+  const isToday = plannerDate === today;
+
+  document.getElementById(
+    "planLabel"
+  ).textContent = isToday
+    ? "Today's plan"
+    : "Tomorrow's plan";
+
+  document.querySelector(
+    '#plan button[onclick="setTomorrow()"]'
+  ).textContent = isToday
+    ? "Plan tomorrow"
+    : "Back to today";
+
+  state.tasks = [];
+  render();
+
+  await loadOnlineTasks();
+};
+
+// Refresh when opening the planner
+
+const originalPlannerGo = go;
+
+go = function (view) {
+  if (view === "home") {
+    plannerDate = localPlannerDate();
+
+    document.getElementById(
+      "planLabel"
+    ).textContent = "Today's plan";
+
+    document.querySelector(
+      '#plan button[onclick="setTomorrow()"]'
+    ).textContent = "Plan tomorrow";
+
+    state.tasks = [];
+  }
+
+  originalPlannerGo(view);
+
+  if (view === "plan" || view === "home") {
+    loadOnlineTasks();
+  }
+};
+
+// Refresh when authentication changes
+
+db.auth.onAuthStateChange(() => {
+  ++plannerRequest;
+  state.tasks = [];
+  render();
+
+  setTimeout(() => {
+    loadOnlineTasks();
+  }, 0);
+});
+
+loadOnlineTasks();
+
+// END OF ONLINE PLANNER
+
 </script></body></html>
